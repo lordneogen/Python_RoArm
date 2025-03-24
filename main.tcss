@@ -1,0 +1,74 @@
+/* Основные стили */
+Screen {
+    layout: horizontal;
+    padding: 1;
+}
+
+/* Левая панель с кнопками */
+.left-panel {
+    width: 50%;
+    min-width: 32;
+    padding: 1;
+    border-right: solid $accent;
+}
+
+/* Панель параметров */
+.params-panel {
+    width: 50%;
+    min-width: 42;
+    padding: 1 2;
+}
+
+/* Стили сетки кнопок */
+ButtonGrid {
+    height: 100%;
+    align: center middle;
+}
+
+.grid-btn {
+    width: 5;
+    height: 3;
+    margin: 1;
+}
+
+/* Секции параметров */
+.section-title {
+    color: $accent;
+    text-style: bold;
+    margin-top: 1;
+    margin-bottom: 1;
+}
+
+.param-row {
+    height: auto;
+    margin: 1 0;
+}
+
+.param-label {
+    width: 14;
+    text-align: right;
+    margin-right: 2;
+}
+
+.param-input {
+    width: 20;
+}
+
+.param-checkbox {
+    margin-right: 1;
+}
+
+.param-hint {
+    color: $text-muted;
+}
+
+.param-unit {
+    margin-left: 1;
+    color: $text-muted;
+}
+.buttons {
+    padding-top: 1;
+}
+.debug-log {
+    height:5
+}
