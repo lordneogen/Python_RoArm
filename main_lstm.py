@@ -42,7 +42,7 @@ class RoboticArmController:
 
     def __init__(self, model_path: str, ip_address: Optional[str] = None, simulate: bool = False, use_speed: bool = False, speed: float = None, round_index: int = None, sleep_time: float = 1, x_pos: int = 0, z_pos: int = 0,grid_size:int = 5,normalize_angle:int = 1,max_step:int =100):
         self.step = 0
-        self.lstm_memory = self.memory = np.zeros((1, 1, 256), dtype=np.float32)
+        self.lstm_memory = np.zeros((1, 1, 256), dtype=np.float32)
 
         self.max_step = max_step
         self.x_pos = self._normpos(x_pos,z_pos,grid_size)[0]
@@ -130,6 +130,7 @@ class RoboticArmController:
         command = f'{{"T":100 }}'
 
         self.step=0
+        self.lstm_memory =  np.zeros((1, 1, 256), dtype=np.float32)
         self.MEMORY=self.initial_memory.copy()
 
         if self.simulate:
@@ -196,6 +197,8 @@ class RoboticArmController:
 
             if self.step>self.max_step or not self.on:
                 break
+
+            self.step+=1
 
             obs = self._prepare_observation()
 
