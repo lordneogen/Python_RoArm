@@ -2,13 +2,16 @@ import argparse
 import math
 import time
 from datetime import datetime
-
+import math
 # from encodings.punycode import selective_len
-
+# import serial
 import requests
 import numpy as np
 import onnxruntime as ort
-from typing import Dict, Tuple, List, Optional
+from typing import Dict, Tuple, List, Optional, Any
+
+from numpy import ndarray, dtype, floating
+from numpy._typing import _32Bit
 
 from sympy.physics.quantum.tests.test_represent import x_bra
 
@@ -27,11 +30,82 @@ class RoboticArmController:
         1: (-90, 90),  # Диапазон для базового сустава
         2: (0, 90),  # Диапазон для плечевого сустава
         3: (0, 180),  # Диапазон для локтевого сустава
-        4: (45, 135)  # Диапазон для захвата
+        4: (90, 180)  # Диапазон для захвата
     }
 
+    MEMORY_AC:List[List[float]] = []
 
     MEMORY: List[List[float]] = [[0, 0, 0, 0, 4, 4]]  # Начальное состояние: углы, X, Z
+
+    def _get_pose(self) -> ndarray[Any, dtype[Any]] | tuple[Any, Any, Any, Any] | None:
+        command = f'{{"T":105 }}'
+        if self.simulate:
+            _last = self.MEMORY[-1].copy()
+            _last[0] = self._convert_range(_last[0], self.JOINT_LIMITS[1],
+                                           (-self.normalize_angle, self.normalize_angle))
+            _last[1] = self._convert_range(_last[1], self.JOINT_LIMITS[2],
+                                           (-self.normalize_angle, self.normalize_angle))
+            _last[2] = self._convert_range(_last[2], self.JOINT_LIMITS[3],
+                                           (-self.normalize_angle, self.normalize_angle))
+            _last[3] = self._convert_range(_last[3], self.JOINT_LIMITS[4],
+                                           (-self.normalize_angle, self.normalize_angle))
+
+            observation = np.array(_last, dtype=np.float32)
+            return observation.reshape(1, -1)
+
+        url = f"http://{self.ip}/js?json={requests.utils.quote(command)}"
+
+        try:
+            response = requests.get(url, timeout=2)
+            if response.status_code == 200:
+                data = response.json()
+
+                b = data.get("b", 0)
+                s = data.get("s", 0)
+                e = data.get("e", 0)
+                t = data.get("t", 0)
+
+                b_d=math.degrees(b)
+                s_d=math.degrees(s)
+                e_d=math.degrees(e)
+                t_d=math.degrees(t)
+
+
+
+                _last = self.MEMORY[-1].copy()
+
+                _last[0] = b_d
+                _last[1] = s_d
+                _last[2] = e_d
+                _last[3] = t_d
+
+                self.MEMORY[-1] = _last.copy()
+
+                _last[0] = self._convert_range(b_d,self.JOINT_LIMITS[1],(-self.normalize_angle, self.normalize_angle))
+
+                _last[1] = self._convert_range(s_d,self.JOINT_LIMITS[2],(-self.normalize_angle, self.normalize_angle))
+
+                _last[2] = self._convert_range(e_d,self.JOINT_LIMITS[3],(-self.normalize_angle, self.normalize_angle))
+
+                _last[3] = self._convert_range(t_d,self.JOINT_LIMITS[4],(-self.normalize_angle, self.normalize_angle))
+
+                self.MEMORY_AC.append(_last.copy())
+
+                # self.MEMORY[-1] = _last
+
+                observation = np.array(_last, dtype=np.float32)
+
+                return observation.reshape(1, -1)
+
+                # print(f"Углы в радианах: b={b}, s={s}, e={e}, t={t}
+            else:
+                print(f"Ошибка: {response.status_code}")
+                return None
+        except requests.exceptions.RequestException as e:
+            print(f"Ошибка соединения: {str(e)}")
+
+
+
 
     def _normpos(self,x_pos:int,z_pos:int,max_pos:int) -> List[float]:
 
@@ -45,10 +119,10 @@ class RoboticArmController:
         self.lstm_memory = np.zeros((1, 1, 256), dtype=np.float32)
 
         self.max_step = max_step
-        self.x_pos = self._normpos(x_pos,z_pos,grid_size)[0]
-        self.z_pos = self._normpos(x_pos,z_pos,grid_size)[1]
+        self.x_pos = self._normpos(x_pos,z_pos,grid_size)[1]
+        self.z_pos = self._normpos(x_pos,z_pos,grid_size)[0]
         self.normalize_angle = normalize_angle
-        self.MEMORY = [[0.0, 0.0, 0.0, 0.0, float(self.x_pos), float(self.z_pos)]]
+        self.MEMORY = [[0.0, 0.0, 90.0, 180.0, float(self.x_pos), float(self.z_pos)]]
         self.sleep_time = sleep_time
         self.round_index = round_index if round_index is not None else 2
         self.speed = speed
@@ -59,7 +133,7 @@ class RoboticArmController:
         self.input_name = self.session.get_inputs()[0].name
         self.output_names = [output.name for output in self.session.get_outputs()]
 
-        self.initial_memory=[[0.0, 0.0, 0.0, 0.0, float(self.x_pos), float(self.z_pos)]]
+        self.initial_memory=[[0.0, 0.0, 90.0, 180.0, float(self.x_pos), float(self.z_pos)]]
         self.on=True
 
         if not self.simulate and not self.ip:
@@ -76,9 +150,11 @@ class RoboticArmController:
                 joint_name = self.JOINT_MAP[joint_idx]
                 angle = step[joint_idx - 1]
                 rounded_angle = angle
+                output.append(f"{timestamp} {joint_name}: {self.MEMORY_AC}")
                 output.append(f"{timestamp} {joint_name}: {rounded_angle}°")
             x = step[4]
             z = step[5]
+            # output.append()
             output.append(f"{timestamp} Позиция X: {x}, Z: {z}")
             output.append("-------------------")
         return output
@@ -115,14 +191,17 @@ class RoboticArmController:
             print(f"Ошибка соединения: {str(e)}")
 
     def _prepare_observation(self) -> np.ndarray:
-        _last=self.MEMORY[-1].copy()
-        _last[0]=self._convert_range(_last[0],self.JOINT_LIMITS[1],(-self.normalize_angle,self.normalize_angle))
-        _last[1]=self._convert_range(_last[1],self.JOINT_LIMITS[2],(-self.normalize_angle,self.normalize_angle))
-        _last[2]=self._convert_range(_last[2],self.JOINT_LIMITS[3],(-self.normalize_angle,self.normalize_angle))
-        _last[3]=self._convert_range(_last[3],self.JOINT_LIMITS[4],(-self.normalize_angle,self.normalize_angle))
 
-        observation = np.array(_last, dtype=np.float32)
-        return observation.reshape(1, -1)
+        return self._get_pose()
+
+        # _last=self.MEMORY[-1].copy()
+        # _last[0]=self._convert_range(_last[0],self.JOINT_LIMITS[1],(-self.normalize_angle,self.normalize_angle))
+        # _last[1]=self._convert_range(_last[1],self.JOINT_LIMITS[2],(-self.normalize_angle,self.normalize_angle))
+        # _last[2]=self._convert_range(_last[2],self.JOINT_LIMITS[3],(-self.normalize_angle,self.normalize_angle))
+        # _last[3]=self._convert_range(_last[3],self.JOINT_LIMITS[4],(-self.normalize_angle,self.normalize_angle))
+        #
+        # observation = np.array(_last, dtype=np.float32)
+        # return observation.reshape(1, -1)
 
 
 
@@ -163,6 +242,8 @@ class RoboticArmController:
         continuous_actions = outputs[2]
         self.lstm_memory = outputs[5]
 
+        self.MEMORY_AC.append(continuous_actions)
+
         new_rotation: List[float] = [0.0] * 4
 
         for joint_idx in self.JOINT_MAP:
@@ -183,8 +264,10 @@ class RoboticArmController:
                     old_range=(-1, 1),
                     new_range=(-self.speed, self.speed)
                 )
+                print(speed_adjusted)
                 angle = self.MEMORY[-1][joint_idx - 1] + speed_adjusted
                 angle = max(min(angle, target_range[1]), target_range[0])
+
                 new_rotation[joint_idx - 1] = angle
                 self._send_command(joint_idx, round(angle, self.round_index))
 
